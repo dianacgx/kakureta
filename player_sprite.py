@@ -72,15 +72,15 @@ class Player(pygame.sprite.Sprite):
         global sprint_colour
         global crouching
 
-        x = 4
-        y = 4
+        x = 6
+        y = 6
 
         pygame.draw.rect(display, sprint_colour, pygame.Rect(40, 25, (3 * sprint_max), 35))
 
         if crouching == False:
             if keypress[K_LSHIFT] and sprint_max > 0 and can_sprint == True:
-                x = 6
-                y = 6
+                x = 8
+                y = 8
                 frame_count = 5
                 sprint_max -= 1
             else:
@@ -94,8 +94,8 @@ class Player(pygame.sprite.Sprite):
                         sprint_colour = [75, 174, 246]
                 frame_count = 7
         elif crouching == True:
-            x = 2
-            y = 2
+            x = 3
+            y = 3
             frame_count = 16
             if sprint_max != 100:
                 if sprint_max == 0:
@@ -177,6 +177,10 @@ class Player(pygame.sprite.Sprite):
         else:
             walk_count = 0
         self.rect.center = self.hitbox.center
+
+    def check_move(self, keypress):
+        if keypress[K_LEFT] or keypress[K_RIGHT] or keypress[K_UP] or keypress[K_DOWN]:
+            return True
 
 class CameraGroup(pygame.sprite.Group):
     def __init__(self):

@@ -1,4 +1,4 @@
-import pygame, random, time, os, sys, pyganim, threading # Python Libraries
+import pygame, random, time, os, sys, pyganim, threading, json # Python Libraries
 import title, player_sprite, menu, enemy # My Libraries
 from csv_convert import * # My Libraries
 from pygame.locals import * # Additional
@@ -25,6 +25,21 @@ tilesize = 64
 
 load = pygame.image.load
 path = os.path.join
+
+## -- ## Game Save Data ## -- ##
+
+data = {
+    "tears_collected": 0,
+    "tears_left": [],
+    "purified_shrines": 0,
+    "shrines_left": [],
+    "player_position": (3264, 2112),
+    "enemy_positions": [],
+    "fighter_positions": [],
+    "spotted": False,
+    "text_crawl": True,
+    "first_tear": True
+}
 
 ## -- ## Classes ## -- ##
 
@@ -82,6 +97,7 @@ class Tile(pygame.sprite.Sprite):
             inflatey = -20
             self.rect = self.image.get_rect(topleft = position)
         self.hitbox = self.rect.inflate(inflatex, inflatey)
+        self.base_x = self.rect.x
 
 ## -- ## Subroutines ## -- ##
 
@@ -117,12 +133,10 @@ title_hover = [1, 0, 0]
 menu_hover = [1, 0 ,0]
 
 # Player Class Objects
-player = player_sprite.Player((3264,2112),"down1.png")
 camera_group = player_sprite.CameraGroup()
 
 # Visible Assets
 visible_main = camera_group
-visible_main.add([player])
 
 # Collision Assets
 collision_main = pygame.sprite.Group()
@@ -130,22 +144,21 @@ collision_main = pygame.sprite.Group()
 # Tears Group
 tears = pygame.sprite.Group()
 
-# Collected Items
-tears_collected = 0
-
-# Tear Images
-tear_images = [load(path("Images", "Screens", "Level", "Tilesets", "Tears", "0.png")), load(path("Images", "Screens", "Level", "Tilesets", "Tears", "1.png"))]
-tear_count = 0
-
 # Shrines Group
 shrines = pygame.sprite.Group()
 
 # Enemy Group
 enemy_group = pygame.sprite.Group()
+fighter_group = pygame.sprite.Group()
+
+# Extras
+game_sound_available = True
+sign = pygame.sprite.Group()
+hideables = pygame.sprite.Group()
 
 ## -- ## Map ## -- ##
 
-def create_map():
+def create_map(new_game, data):
     layouts = {
         "boundary": csv_layout("Images/Screens/Level/Data/Origin_Boundary.csv"),
         "s trees": csv_layout("Images/Screens/Level/Data/Origin_S Trees.csv"),
@@ -161,7 +174,8 @@ def create_map():
         "gate": csv_layout("Images/Screens/Level/Data/Origin_Gate.csv"),
         "shrine": csv_layout("Images/Screens/Level/Data/Origin_Shrine.csv"),
         "tears": csv_layout("Images/Screens/Level/Data/Origin_Spawn.csv"),
-        "enemies": csv_layout("Images/Screens/Level/Data/Origin_Enemy.csv")
+        "enemies": csv_layout("Images/Screens/Level/Data/Origin_Enemy.csv"),
+        "fighters": csv_layout("Images/Screens/Level/Data/Origin_Fighter.csv")
     }
 
     graphics = {
@@ -178,7 +192,8 @@ def create_map():
         "gate": import_folder("Images/Screens/Level/Tilesets/gate"),
         "shrine": import_folder("Images/Screens/Level/Tilesets/shrine"),
         "tears": import_folder("Images/Screens/Level/Tilesets/tears"),
-        "enemies": import_folder("Images/Enemy")
+        "enemies": import_folder("Images/Enemy"),
+        "fighters": import_folder("Images/Fighter")
     }
 
     for type, layout in layouts.items():
@@ -210,6 +225,8 @@ def create_map():
                         tile = Tile((x, y), "s objects", image)
                         visible_main.add([tile])
                         collision_main.add([tile])
+                        if column == "8":
+                            sign.add([tile])
                     if type == "m objects":
                         image = graphics["m objects"][int(column)]
                         tile = Tile((x, y), "m objects", image)
@@ -239,6 +256,7 @@ def create_map():
                         image = graphics["hide"][int(column)]
                         tile = Tile((x, y), "hide", image)
                         visible_main.add([tile])
+                        hideables.add([tile])
                     if type == "gate":
                         image = graphics["gate"][int(column)]
                         tile = Tile((x, y), "gate", image)
@@ -246,28 +264,73 @@ def create_map():
                         collision_main.add([tile])
                     if type == "shrine":
                         image = graphics["shrine"][int(column)]
-                        tile = Tile((x, y), "shrine", image)
-                        visible_main.add([tile])
-                        collision_main.add([tile])
-                        shrines.add([tile])
+                        if new_game:
+                            tile = Tile((x, y), "shrine", image)
+                            visible_main.add([tile])
+                            collision_main.add([tile])
+                            shrines.add([tile])
+                        else:
+                            shrines_left = data["shrines_left"]
+                            if [x, y] in shrines_left:
+                                tile = Tile((x, y), "shrine", image)
+                                visible_main.add([tile])
+                                collision_main.add([tile])
+                                shrines.add([tile])
+                            else:
+                                image = graphics["shrine"][1]
+                                tile = Tile((x, y), "shrine", image)
+                                visible_main.add([tile])
+                                collision_main.add([tile])
                     if type == "tears":
                         image = graphics["tears"][0]
-                        tile = Tile((x, y), "tears", image)
-                        visible_main.add([tile])
-                        tears.add([tile])
+                        if new_game:
+                            tile = Tile((x, y), "tears", image)
+                            visible_main.add([tile])
+                            tears.add([tile])
+                        else:
+                            tears_left = data["tears_left"]
+                            if [x, y] in tears_left:
+                                tile = Tile((x, y), "tears", image)
+                                visible_main.add([tile])
+                                tears.add([tile])
                     if type == "enemies":
                         image = graphics["enemies"][0]
-                        enemytile = enemy.Enemy((x,y), image)
-                        visible_main.add([enemytile])
-                        enemy_group.add([enemytile])
-
-create_map()
+                        if new_game:
+                            enemytile = enemy.Enemy((x, y), image)
+                            visible_main.add([enemytile])
+                            enemy_group.add([enemytile])
+                        else:
+                            enemy_position = data["enemy_positions"]
+                            enemytile = enemy.Enemy((x, y), image)
+                            visible_main.add([enemytile])
+                            enemy_group.add([enemytile])
+                    if type == "fighters":
+                        image = graphics["fighters"][0]
+                        if new_game:
+                            fightertile = enemy.Fighter((x, y), image)
+                            visible_main.add([fightertile])
+                            fighter_group.add([fightertile])
+                            collision_main.add([fightertile])
+    if not new_game:
+        fighter_position = data["fighter_positions"]
+        image = graphics["fighters"][0]
+        for i in range(0, len(fighter_position)):
+            x = fighter_position[i][0]
+            y = fighter_position[i][1]
+            fightertile = enemy.Fighter((x, y), image)
+            visible_main.add([fightertile])
+            fighter_group.add([fightertile])
+            collision_main.add([fightertile])
 
 ## -- ## Game Loops ## -- ##
 
 # Title Loop
 def title():
+    global data
+    global player
+    global visible_main
     game_running = True
+    nosaves = False
     while game_running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -296,11 +359,25 @@ def title():
                         title_hover[one_index - 1] = 1
 
                 # Pressing enter on the right button
-                if event.key == pygame.K_RETURN and title_hover[0] == 1:
+                if event.key == pygame.K_RETURN and title_hover[0] == 1: # Load
+                    try:
+                        with open("game_data.txt") as save_file:
+                            data = json.load(save_file)
+                        click()
+                        create_map(False, data)
+                        player = player_sprite.Player(data["player_position"], "down1.png")
+                        visible_main.add([player])
+                        main()
+                    except:
+                        nosaves = True
+                        savetimer = 0
+                if event.key == pygame.K_RETURN and title_hover[1] == 1: # New
                     click()
+                    create_map(True, data)
+                    player = player_sprite.Player(data["player_position"], "down1.png")
+                    visible_main.add([player])
                     main()
-                    #loading()
-                if event.key == pygame.K_RETURN and title_hover[2] == 1:
+                if event.key == pygame.K_RETURN and title_hover[2] == 1: # Exit
                     click()
                     pygame.quit()
                     sys.exit()
@@ -319,6 +396,13 @@ def title():
             T_exit_button.hover("exit.png", "exithover.png", 92, 20, 0, 200, False)
         title_screen.animate(display)
         title_list.draw(display)
+        try:
+            if savetimer <= 60:
+                savetimer += 1
+        except:
+            pass
+        if nosaves and savetimer <= 60:
+            display.blit(load(path("Images", "Screens", "Title", "nosaves.png")), (0, display_height - 100))
         cursor()
         pygame.display.flip()
         clock.tick(FPS)
@@ -352,12 +436,59 @@ def main():
     game_running = True
     inventory = False
     controls = False
+    gamesaved = False
+    text_crawl = data["text_crawl"]
+    seen = data["spotted"]
+    crouching = False
     game_over = False
+    first_tear = data["first_tear"]
+    collide_tear = False
+    shrine_count = 0
+    next_sequence_2 = False
+    tear_images = [load(path("Images", "Screens", "Level", "Tilesets", "Tears", "0.png")),
+                   load(path("Images", "Screens", "Level", "Tilesets", "Tears", "1.png"))]
+    tear_count = 0
+    sequence = 0
+    hide_timer = 0
+    starting_options = ["What happened?", "Where did everyone go?", "I should try talking to that wisp..."]
+    s_num = 0
+    starting_text_1 = starting_options[s_num]
+    text_iterator = iter(starting_text_1)
+    display_text = ""
+    tsuki_options1 = [load(path("Images", "Dialogue", "tsuki_head.png")), load(path("Images", "Dialogue", "tsuki_think.png")),
+                      load(path("Images", "Dialogue", "tsuki_thinkhard.png"))]
+    t_num = 0
+    starting_options_2 = ["Hello?", "Tsuki... please help us.", "Himari? What happened?", "The island...",
+                        "It was overrun by Yokai.", "All of us got killed.", "How do I help?!", "Deposit our souls and tears.",
+                        "Put us in the shrines.", "Please don't get caught by them.", "I'll try.", "Thank you, Himari."]
+    s2_num = 0
+    starting_text_2 = starting_options_2[s2_num]
+    text_iterator_2 = iter(starting_text_2)
+    tsuki_options2 = [load(path("Images", "Dialogue", "tsuki_head.png")),
+                      load(path("Images", "Dialogue", "tear.png")),
+                      load(path("Images", "Dialogue", "tsuki_think.png")),
+                      load(path("Images", "Dialogue", "tear.png")),
+                      load(path("Images", "Dialogue", "tear.png")),
+                      load(path("Images", "Dialogue", "tear.png")),
+                      load(path("Images", "Dialogue", "tsuki_shocked.png")),
+                      load(path("Images", "Dialogue", "tear.png")),
+                      load(path("Images", "Dialogue", "tear.png")),
+                      load(path("Images", "Dialogue", "tear.png")),
+                      load(path("Images", "Dialogue", "tsuki_think.png")),
+                      load(path("Images", "Dialogue", "tsuki_thank.png"))]
+    t2_num = 0
+    display_text_2 = ""
+    shrine_images = [load(path("Images", "Shrine_Animation", "0.png")), load(path("Images", "Shrine_Animation", "1.png"))]
+    game_over_image = load(path("Images", "Screens", "Main", "gameover.png"))
+    game_over_surface = pygame.Surface(game_over_image.get_rect().size)
+    game_over_surface.set_colorkey((1, 1, 1))
+    game_over_surface.fill((1, 1, 1))
+    game_over_surface.blit(game_over_image, (0, 0))
+    alpha = 0
+
     while game_running:
-        global tears_collected
-        global tear_count
-        global tear_images
         global end_thread
+        global game_sound_available
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 game_running = False
@@ -384,6 +515,33 @@ def main():
                     else:
                         menu_hover = [0, 0, 0]
                         menu_hover[one_index - 1] = 1
+                if event.key == pygame.K_RETURN and inventory and menu_hover == [1, 0, 0]:
+                    click()
+                    save_tear = []
+                    for tear in tears:
+                        save_tear.append((tear.rect.x, tear.rect.y))
+                    data["tears_left"] = save_tear
+                    save_shrine = []
+                    for shrine in shrines:
+                        save_shrine.append((shrine.rect.x, shrine.rect.y))
+                    save_enemies = []
+                    for enemies in enemy_group:
+                        save_enemies.append((enemies.rect.x, enemies.rect.y))
+                    save_fighters = []
+                    for fighters in fighter_group:
+                        save_fighters.append((fighters.rect.x, fighters.rect.y))
+                    spotted = seen
+                    data["shrines_left"] = save_shrine
+                    data["enemy_positions"] = save_enemies
+                    data["fighter_positions"] = save_fighters
+                    data["spotted"] = spotted
+                    data["text_crawl"] = text_crawl
+                    data["first_tear"] = first_tear
+                    data["player_position"] = (player.rect.x, player.rect.y)
+                    with open("game_data.txt", "w") as save_file:
+                        json.dump(data, save_file)
+                    gamesaved = True
+                    savetimer = 0
                 if event.key == pygame.K_RETURN and inventory and menu_hover == [0, 0, 1]:
                     click()
                     pygame.quit()
@@ -407,13 +565,13 @@ def main():
         player_rect = player.hitbox.copy()
         keypress = pygame.key.get_pressed()
 
-        if inventory == True:
+        if inventory and not game_over:
             if controls == True:
                 display.blit(load(path("Images","Screens","Main","controlsmenu.png")), (0, 0))
             else:
                 display.blit(load(path("Images", "Screens", "Main", "pause.png")), (0, 0))
                 font = pygame.font.SysFont(None, 64)
-                tears_text = font.render(str(tears_collected), True, [0,0,0])
+                tears_text = font.render(str(data["tears_collected"]), True, [0,0,0])
                 display.blit(tears_text, (480,178))
                 if menu_hover[0] == 1:
                     save_button.hover("save.png", "savehover.png",  True)
@@ -428,22 +586,89 @@ def main():
                 else:
                     exit_button.hover("exit.png", "exithover.png", False)
                 menu_list.draw(display)
+                try:
+                    if savetimer <= 60:
+                        savetimer += 1
+                except:
+                    pass
+                if gamesaved and savetimer <= 60:
+                    display.blit(load(path("Images", "Screens", "Title", "gamesaved.png")), (0, display_height - 100))
         elif game_over:
-            pygame.draw.rect(display, [0, 0, 0], pygame.Rect(100, 100, 700, 400))
-            game_font = pygame.font.SysFont(None, 80)
-            game_text = game_font.render("GAME OVER", True, [152,2,30])
-            display.blit(game_text, (275,200))
+            if game_sound_available:
+                game_over_sound()
+                game_sound_available = False
+            alpha = alpha + 5
+            game_over_surface.set_alpha(alpha)
+            display.blit(game_over_surface, (0, 0))
             if keypress[K_ESCAPE]:
                 pygame.quit()
                 sys.exit()
         else:
+            for fighter in fighter_group:
+                fighter.move(collision_main, player, seen)
+                if fighter.move(collision_main, player, seen) == True:
+                    game_over = True
+            if seen:
+                display.blit(load(path("Images", "Screens", "Main", "seen.png")), (0, 0))
+                display.blit(load(path("Images", "enemyeffect.png")), (0, 0))
+            else:
+                display.blit(load(path("Images", "Screens", "Main", "notseen.png")), (0, 0))
+            if text_crawl:
+                display.blit(load(path("Images", "Dialogue", "tsuki.png")), (50, 400))
+                display.blit(tsuki_options1[t_num], (650, 300))
+                if len(display_text) < len(starting_text_1):
+                    display_text += next(text_iterator)
+                if len(display_text) == len(starting_text_1):
+                    next_sequence = True
+                font = pygame.font.SysFont("Consolas", 28)
+                start_text = font.render(display_text, True, [255, 255, 255])
+                font2 = pygame.font.SysFont("Consolas", 20)
+                press_text = font2.render("Press X", True, [255, 255, 255])
+                display.blit(start_text, (100, 470))
+                display.blit(press_text, (575, 550))
+            if keypress[K_x] and text_crawl and next_sequence:
+                s_num += 1
+                t_num += 1
+                if s_num == len(starting_options):
+                    text_crawl = False
+                    first_tear = True
+                else:
+                    starting_text_1 = starting_options[s_num]
+                    text_iterator = iter(starting_text_1)
+                    display_text = ""
+                    next_sequence = False
+            for tear in tears:
+                if tear.hitbox.colliderect(player.hitbox):
+                    collide_tear = True
+            if first_tear and collide_tear:
+                display.blit(load(path("Images", "Dialogue", "tsuki.png")), (50, 400))
+                display.blit(tsuki_options2[t2_num], (650, 300))
+                if len(display_text_2) < len(starting_text_2):
+                    display_text_2 += next(text_iterator_2)
+                if len(display_text_2) == len(starting_text_2):
+                    next_sequence_2 = True
+                font = pygame.font.SysFont("Consolas", 28)
+                start_text = font.render(display_text_2, True, [255, 255, 255])
+                font2 = pygame.font.SysFont("Consolas", 20)
+                press_text = font2.render("Press X", True, [255, 255, 255])
+                display.blit(start_text, (100, 470))
+                display.blit(press_text, (575, 550))
+            if keypress[K_x] and first_tear and next_sequence_2 and collide_tear:
+                s2_num += 1
+                t2_num += 1
+                if s2_num == len(starting_options_2):
+                    first_tear = False
+                else:
+                    starting_text_2 = starting_options_2[s2_num]
+                    text_iterator_2 = iter(starting_text_2)
+                    display_text_2 = ""
+                    next_sequence_2 = False
             player.move(keypress)
             for slime in enemy_group:
                 slime.move(collision_main, player)
                 if slime.move(collision_main, player) == True:
-                    game_over = True
+                    seen = True
             display.blit(load(path("Images", "Screens", "Main", "HUD.png")), (0, 0))
-            display.blit(load(path("Images", "Screens", "Main", "notseen.png")), (0, 0))
 
             # Collision
             for sprite in collision_main:
@@ -459,19 +684,60 @@ def main():
             # Tear Collision
             for tear in tears:
                 tear.image = tear_images[(tear_count // 16) % len(tear_images)]
-                if tear.hitbox.colliderect(player.hitbox):
-                    tear.kill()
-                    tear_get()
-                    tears_collected += 1
+                if not first_tear:
+                    if tear.hitbox.colliderect(player.hitbox):
+                        tear.kill()
+                        tear_get()
+                        data["tears_collected"] += 1
 
             # Shrine Purify
             for shrine in shrines:
-                if keypress[K_i] and shrine.rect.colliderect(player.hitbox) and tears_collected >= 1:
+                if keypress[K_i] and shrine.rect.colliderect(player.hitbox) and data["tears_collected"] >= 1:
                     shrines.remove([shrine])
                     shrine.image = load(path("Images", "Screens", "Level", "Tilesets", "Shrine", "1.png"))
                     shrine_pure()
-                    tears_collected -= 1
+                    data["tears_collected"] -= 1
+                    data["purified_shrines"] += 1
+                elif shrine.rect.colliderect(player.hitbox):
+                    if shrine_count < 100:
+                        shrine_count += 1
+                    else:
+                        shrine_count = 0
+                    shrine.image = shrine_images[(tear_count // 16) % len(tear_images)]
+                else:
+                    shrine.image = load(path("Images", "Screens", "Level", "Tilesets", "Shrine", "0.png"))
 
+            # Display Sign
+            for message in sign:
+                if message.rect.colliderect(player.hitbox):
+                    display.blit(load(path("Images", "Screens", "Main", "sign.png")), (0, display_height - 300))
+
+            # Grass Rustling Animation
+            shake = 5
+            for grass in hideables:
+                max_left = grass.base_x - 10
+                max_right = grass.base_x + 10
+                if grass.rect.colliderect(player.hitbox) and player.check_move(keypress):
+                        if grass.rect.x > max_left or grass.rect.x < max_right:
+                            grass.rect.x = grass.base_x
+                        grass.rect.x += shake
+                        shake = -shake
+                        bush_effect()
+                else:
+                    grass.rect.x = grass.base_x
+                if grass.rect.colliderect(player.hitbox):
+                    if hide_timer < 360:
+                        hide_timer += 1
+                    else:
+                        hide_timer = 0
+                    if keypress[K_LCTRL]:
+                        crouching = True
+                    else:
+                        crouching = False
+                    if hide_timer >= 300 and crouching:
+                        seen = False
+                    elif hide_timer >= 350:
+                        seen = False
         pygame.display.flip()
         clock.tick(FPS)
     pygame.quit()
@@ -515,6 +781,16 @@ def tear_get():
 shrine_sound = mixer.Sound("Music/Woosh.mp3")
 def shrine_pure():
     mixer.Sound.play(shrine_sound)
+
+# Game Over Sound
+over_sound = mixer.Sound("Music/GameOver.mp3")
+def game_over_sound():
+    mixer.Sound.play(over_sound)
+
+# Bush Rustling Sound
+bush_sound = mixer.Sound("Music/Bush.mp3")
+def bush_effect():
+    mixer.Sound.play(bush_sound)
 
 ## -- ## Main ## -- ##
 
